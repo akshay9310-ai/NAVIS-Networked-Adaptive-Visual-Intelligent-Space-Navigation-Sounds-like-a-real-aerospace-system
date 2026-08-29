@@ -1,0 +1,33 @@
+# Node dependencies & build artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment variables
+.env.local
+.env.*.local
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE & Editor files
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

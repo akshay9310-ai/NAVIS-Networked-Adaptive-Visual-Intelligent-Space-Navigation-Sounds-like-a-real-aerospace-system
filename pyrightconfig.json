@@ -1,0 +1,21 @@
+{
+  "include": [
+    "backend",
+    "tests"
+  ],
+  "extraPaths": [
+    "."
+  ],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": [
+        "."
+      ]
+    }
+  ],
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportOptionalMemberAccess": "none"
+}
