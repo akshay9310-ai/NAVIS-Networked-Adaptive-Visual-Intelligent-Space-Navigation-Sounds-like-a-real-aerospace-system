@@ -4,10 +4,12 @@ End-to-End WebSocket and API Simulation Verification for NAVIS
 
 import asyncio
 import json
+import pytest
 import websockets
 import urllib.request
 
 
+@pytest.mark.anyio
 async def test_e2e_websocket():
     uri = "ws://127.0.0.1:8000/ws/simulation"
     print(f"Connecting to NAVIS WebSocket: {uri}...")

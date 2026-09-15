@@ -166,6 +166,18 @@ class BenchmarkEvaluator:
 
                 rover.update(dt, sim_time, terrain_cost, terrain_slope, is_outage=(not pnt_available))
 
+                # Collect active visible PNT satellites
+                if mode_key == NavigationMode.MODE_A:
+                    active_pnt_sats = []
+                elif mode_key == NavigationMode.MODE_B:
+                    sat01 = constellation.satellites["SAT-01"]
+                    active_pnt_sats = [sat01] if sat01.is_visible_to_rover and not sat01.is_outage_forced else []
+                else:
+                    active_pnt_sats = [
+                        s for s in constellation.satellites.values()
+                        if s.is_visible_to_rover and s.pnt_available and not s.is_outage_forced
+                    ] if not constellation.global_outage else []
+
                 # Sensor sampling & EKF
                 sensor_meas = sensors.sample(
                     dt=dt,
@@ -180,6 +192,8 @@ class BenchmarkEvaluator:
                     wheel_slip=rover.wheel_slip,
                     pnt_available=pnt_available,
                     wheel_speed=rover.wheel_speed,
+                    sim_time=sim_time,
+                    active_satellites=active_pnt_sats,
                 )
 
                 ekf_est = ekf.step(dt, sensor_meas)

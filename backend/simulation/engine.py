@@ -218,6 +218,15 @@ class SimulationEngine:
             img_sat = self.constellation.get_imaging_satellite()
             imaging_available = (img_sat is not None) and (not self.constellation.global_outage)
 
+        # Collect active visible PNT satellites for dynamic geometry HDOP
+        if pnt_available and not self.constellation.global_outage:
+            active_pnt_sats = [
+                s for s in self.constellation.satellites.values()
+                if s.is_visible_to_rover and s.pnt_available and not s.is_outage_forced
+            ]
+        else:
+            active_pnt_sats = []
+
         # 2. Step Rover Kinematics
         terrain_cost = self.terrain.get_cost(self.rover.x, self.rover.y)
         terrain_slope = self.terrain.get_slope(self.rover.x, self.rover.y)
@@ -244,6 +253,8 @@ class SimulationEngine:
             wheel_slip=self.rover.wheel_slip,
             pnt_available=pnt_available,
             wheel_speed=self.rover.wheel_speed,
+            sim_time=self.sim_time,
+            active_satellites=active_pnt_sats,
         )
 
         # 4. EKF Sensor Fusion Step

@@ -62,6 +62,7 @@ class NAVIS_EKF:
 
         self.last_pnt_active = True
         self.fallback_active = False
+        self.last_unbiased_omega = 0.0
 
     def reset(
         self,
@@ -77,6 +78,7 @@ class NAVIS_EKF:
         self.P = np.diag([0.25, 0.25, 0.1, 0.1, 0.01, 0.01, 0.01, 0.001]).astype(np.float64)
         self.last_pnt_active = True
         self.fallback_active = False
+        self.last_unbiased_omega = 0.0
 
     def predict(self, dt: float, imu_meas: Dict[str, Any]) -> None:
         """
@@ -85,15 +87,18 @@ class NAVIS_EKF:
         # Unpack state
         px, py, vx, vy, theta, b_ax, b_ay, b_w = self.x
 
-        # Unpack IMU measurements
-        meas_ax = imu_meas["ax"]
-        meas_ay = imu_meas["ay"]
-        meas_w = imu_meas["omega"]
+        if not imu_meas.get("active", True) or imu_meas.get("ax") is None:
+            meas_ax, meas_ay, meas_w = b_ax, b_ay, b_w
+        else:
+            meas_ax = imu_meas["ax"]
+            meas_ay = imu_meas["ay"]
+            meas_w = imu_meas["omega"]
 
         # Compensate for estimated sensor bias
         unbiased_ax = meas_ax - b_ax
         unbiased_ay = meas_ay - b_ay
         unbiased_w = meas_w - b_w
+        self.last_unbiased_omega = float(unbiased_w)
 
         # Transform body accelerations to navigation frame
         cos_t = math.cos(theta)
@@ -145,15 +150,28 @@ class NAVIS_EKF:
         # Covariance propagation: P = F * P * F^T + Q * dt
         self.P = F @ self.P @ F.T + self.Q * dt
 
-    def update_pnt(self, pnt_meas: Dict[str, Any]) -> None:
+    def update_pnt(self, pnt_meas: Dict[str, Any], R_override: Optional[np.ndarray] = None) -> None:
         """
         EKF Measurement update with absolute Satellite PNT.
         z = [x_pnt, y_pnt]^T
+        Accepts optional dynamic covariance R_override or extracts r_matrix / hdop from payload.
         """
-        if not pnt_meas["active"] or pnt_meas["x"] is None:
+        if not pnt_meas.get("active", False) or pnt_meas.get("x") is None:
             return
 
         z = np.array([pnt_meas["x"], pnt_meas["y"]], dtype=np.float64)
+
+        # Dynamic R selection based on measurement quality / HDOP
+        if R_override is not None:
+            R_use = np.array(R_override, dtype=np.float64)
+        elif pnt_meas.get("r_matrix") is not None:
+            R_use = np.array(pnt_meas["r_matrix"], dtype=np.float64)
+        elif pnt_meas.get("hdop") is not None:
+            hdop = float(pnt_meas["hdop"])
+            sigma_dyn = self.sigma_pnt * hdop
+            R_use = np.diag([sigma_dyn**2, sigma_dyn**2])
+        else:
+            R_use = self.R_pnt
 
         # Measurement Jacobian H_pnt (2x8)
         H = np.zeros((2, 8), dtype=np.float64)
@@ -167,7 +185,7 @@ class NAVIS_EKF:
         y = z - z_pred
 
         # Innovation Covariance S = H * P * H^T + R
-        S = H @ self.P @ H.T + self.R_pnt
+        S = H @ self.P @ H.T + R_use
 
         # Kalman Gain K = P * H^T * inv(S)
         K = self.P @ H.T @ np.linalg.inv(S)
@@ -177,15 +195,28 @@ class NAVIS_EKF:
         I = np.eye(8, dtype=np.float64)
         self.P = (I - K @ H) @ self.P
 
+        # Ensure covariance matrix symmetry
+        self.P = 0.5 * (self.P + self.P.T)
+
         # Normalize heading state
         self.x[4] = (self.x[4] + math.pi) % (2 * math.pi) - math.pi
 
     def update_odometry(self, odo_meas: Dict[str, Any]) -> None:
         """
         EKF Measurement update with Wheel Odometry speed.
-        Speed = sqrt(vx^2 + vy^2)
+        Compensates wheel rotational speed for terrain slip to obtain estimated ground speed:
+        v_ground_est = v_wheel_meas * (1 - slip_ratio)
         """
-        meas_speed = odo_meas["speed"]
+        if not odo_meas.get("active", True) or odo_meas.get("speed") is None:
+            return
+
+        meas_wheel_speed = odo_meas["speed"]
+        slip_pct = odo_meas.get("slip_pct", 0.0)
+        slip_ratio = min(0.95, max(0.0, slip_pct / 100.0))
+
+        # Convert measured wheel rotational speed to estimated ground speed using slip estimate
+        meas_ground_speed = max(0.0, meas_wheel_speed * (1.0 - slip_ratio))
+
         vx, vy = self.x[2], self.x[3]
         pred_speed = math.hypot(vx, vy)
 
@@ -197,7 +228,7 @@ class NAVIS_EKF:
         H[0, 2] = vx / pred_speed
         H[0, 3] = vy / pred_speed
 
-        z = np.array([meas_speed], dtype=np.float64)
+        z = np.array([meas_ground_speed], dtype=np.float64)
         z_pred = np.array([pred_speed], dtype=np.float64)
         y = z - z_pred
 
@@ -207,36 +238,50 @@ class NAVIS_EKF:
         self.x = self.x + K.flatten() * y[0]
         I = np.eye(8, dtype=np.float64)
         self.P = (I - K @ H) @ self.P
+        self.P = 0.5 * (self.P + self.P.T)
         self.x[4] = (self.x[4] + math.pi) % (2 * math.pi) - math.pi
 
     def update_visual_odometry(self, vo_meas: Dict[str, Any], dt: float) -> None:
         """
-        EKF Measurement update with Visual Odometry relative displacement:
-        z = [dx/dt, dy/dt, dtheta/dt]^T => [vx, vy, omega]^T
+        EKF Measurement update with Visual Odometry relative body displacement:
+        z = [dx_body/dt, dy_body/dt, dtheta/dt]^T => [v_body_x, v_body_y, omega]^T
         """
-        if not vo_meas["active"] or dt <= 0:
+        if not vo_meas.get("active", True) or dt <= 0 or vo_meas.get("dx") is None:
             return
 
-        meas_vx = vo_meas["dx"] / dt
-        meas_vy = vo_meas["dy"] / dt
+        meas_vx_body = vo_meas["dx"] / dt
+        meas_vy_body = vo_meas["dy"] / dt
         meas_omega = vo_meas["dtheta"] / dt
 
         # Scaled noise based on feature confidence
         conf = vo_meas.get("feature_confidence", 0.9)
         R_scaled = self.R_vo / max(0.2, conf)
 
-        z = np.array([meas_vx, meas_vy, meas_omega], dtype=np.float64)
+        z = np.array([meas_vx_body, meas_vy_body, meas_omega], dtype=np.float64)
 
-        # Predicted measurement
-        H = np.zeros((3, 8), dtype=np.float64)
-        H[0, 2] = 1.0  # vx
-        H[1, 3] = 1.0  # vy
-        # VO yaw rate equals gyro rate minus estimated bias
-        # For simplicity, state vector has bias_omega, so pred_omega = w_meas - b_w
-        H[2, 7] = -1.0
+        # Predicted measurement in body frame
+        px, py, vx, vy, theta, b_ax, b_ay, b_w = self.x
+        cos_t = math.cos(theta)
+        sin_t = math.sin(theta)
 
-        z_pred = np.array([self.x[2], self.x[3], -self.x[7]], dtype=np.float64)
+        pred_vx_body = vx * cos_t + vy * sin_t
+        pred_vy_body = -vx * sin_t + vy * cos_t
+        pred_omega = getattr(self, "last_unbiased_omega", -b_w)
+
+        z_pred = np.array([pred_vx_body, pred_vy_body, pred_omega], dtype=np.float64)
         y = z - z_pred
+
+        # Measurement Jacobian H_vo (3x8)
+        H = np.zeros((3, 8), dtype=np.float64)
+        H[0, 2] = cos_t
+        H[0, 3] = sin_t
+        H[0, 4] = pred_vy_body
+
+        H[1, 2] = -sin_t
+        H[1, 3] = cos_t
+        H[1, 4] = -pred_vx_body
+
+        H[2, 7] = -1.0
 
         S = H @ self.P @ H.T + R_scaled
         K = self.P @ H.T @ np.linalg.inv(S)
@@ -244,6 +289,7 @@ class NAVIS_EKF:
         self.x = self.x + K @ y
         I = np.eye(8, dtype=np.float64)
         self.P = (I - K @ H) @ self.P
+        self.P = 0.5 * (self.P + self.P.T)
         self.x[4] = (self.x[4] + math.pi) % (2 * math.pi) - math.pi
 
     def step(
