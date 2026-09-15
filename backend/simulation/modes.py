@@ -160,10 +160,13 @@ class BenchmarkEvaluator:
                     imaging_sat = constellation.get_imaging_satellite()
                     imaging_active = imaging_sat is not None
 
-                # Sensor sampling & EKF
+                # Step Rover Kinematics
                 terrain_cost = terrain.get_cost(rover.x, rover.y)
                 terrain_slope = terrain.get_slope(rover.x, rover.y)
 
+                rover.update(dt, sim_time, terrain_cost, terrain_slope, is_outage=(not pnt_available))
+
+                # Sensor sampling & EKF
                 sensor_meas = sensors.sample(
                     dt=dt,
                     true_x=rover.x,
@@ -171,11 +174,12 @@ class BenchmarkEvaluator:
                     true_vx=rover.vx,
                     true_vy=rover.vy,
                     true_heading=rover.heading,
-                    true_speed=rover.speed,
+                    true_speed=rover.ground_speed,
                     true_accel=rover.accel,
                     true_omega=rover.angular_velocity,
                     wheel_slip=rover.wheel_slip,
                     pnt_available=pnt_available,
+                    wheel_speed=rover.wheel_speed,
                 )
 
                 ekf_est = ekf.step(dt, sensor_meas)
@@ -205,9 +209,6 @@ class BenchmarkEvaluator:
                         replan_res = planner.trigger_replan((rover.x, rover.y), rover.target_pos)
                         rover.set_path(replan_res["new_route"])
                         route_replanned = True
-
-                # Step Rover
-                rover.update(dt, sim_time, terrain_cost, terrain_slope, is_outage=(not pnt_available))
 
                 # Check if hit hazard
                 if terrain.is_in_hazard(rover.x, rover.y):

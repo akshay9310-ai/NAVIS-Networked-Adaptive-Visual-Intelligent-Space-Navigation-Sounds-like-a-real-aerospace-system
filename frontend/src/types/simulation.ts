@@ -8,6 +8,8 @@ export interface RoverState {
   vx: number;
   vy: number;
   speed: number;
+  ground_speed?: number;
+  wheel_speed?: number;
   accel: number;
   heading_rad: number;
   heading_deg: number;

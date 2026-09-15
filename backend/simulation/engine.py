@@ -218,28 +218,10 @@ class SimulationEngine:
             img_sat = self.constellation.get_imaging_satellite()
             imaging_available = (img_sat is not None) and (not self.constellation.global_outage)
 
-        # 2. Sample Sensors
+        # 2. Step Rover Kinematics
         terrain_cost = self.terrain.get_cost(self.rover.x, self.rover.y)
         terrain_slope = self.terrain.get_slope(self.rover.x, self.rover.y)
 
-        self.latest_sensors = self.sensors.sample(
-            dt=dt,
-            true_x=self.rover.x,
-            true_y=self.rover.y,
-            true_vx=self.rover.vx,
-            true_vy=self.rover.vy,
-            true_heading=self.rover.heading,
-            true_speed=self.rover.speed,
-            true_accel=self.rover.accel,
-            true_omega=self.rover.angular_velocity,
-            wheel_slip=self.rover.wheel_slip,
-            pnt_available=pnt_available,
-        )
-
-        # 3. EKF Sensor Fusion Step
-        self.latest_ekf = self.ekf.step(dt, self.latest_sensors)
-
-        # 4. Step Rover Kinematics
         self.rover.update(
             dt=dt,
             sim_time=self.sim_time,
@@ -247,6 +229,25 @@ class SimulationEngine:
             terrain_slope=terrain_slope,
             is_outage=(not pnt_available),
         )
+
+        # 3. Sample Sensors from newly propagated rover state
+        self.latest_sensors = self.sensors.sample(
+            dt=dt,
+            true_x=self.rover.x,
+            true_y=self.rover.y,
+            true_vx=self.rover.vx,
+            true_vy=self.rover.vy,
+            true_heading=self.rover.heading,
+            true_speed=self.rover.ground_speed,
+            true_accel=self.rover.accel,
+            true_omega=self.rover.angular_velocity,
+            wheel_slip=self.rover.wheel_slip,
+            pnt_available=pnt_available,
+            wheel_speed=self.rover.wheel_speed,
+        )
+
+        # 4. EKF Sensor Fusion Step
+        self.latest_ekf = self.ekf.step(dt, self.latest_sensors)
 
         # 5. AI Trajectory Prediction & Hazard Reconnaissance (Mode C)
         if self.active_mode == NavigationMode.MODE_C:

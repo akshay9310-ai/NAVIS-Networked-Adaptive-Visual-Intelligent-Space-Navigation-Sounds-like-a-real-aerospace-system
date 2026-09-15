@@ -208,20 +208,69 @@ class MarsTerrain:
         """Map grid indices (col, row) to world coordinates (meters)."""
         return gx * self.cell_size, gy * self.cell_size
 
+    def _bilinear_interpolate(self, grid: np.ndarray, x: float, y: float) -> float:
+        """
+        Bilinear interpolation on a 2D numpy grid for continuous world coordinates (x, y).
+        Grid is indexed as grid[gy, gx] where gx is x-axis (col) and gy is y-axis (row).
+        Clamps coordinates safely within grid boundaries [0, grid_res - 1].
+        """
+        fx = float(np.clip(x / self.cell_size, 0.0, float(self.grid_res - 1)))
+        fy = float(np.clip(y / self.cell_size, 0.0, float(self.grid_res - 1)))
+
+        gx0 = int(math.floor(fx))
+        gy0 = int(math.floor(fy))
+
+        gx1 = min(gx0 + 1, self.grid_res - 1)
+        gy1 = min(gy0 + 1, self.grid_res - 1)
+
+        tx = fx - gx0
+        ty = fy - gy0
+
+        q11 = float(grid[gy0, gx0])
+        q21 = float(grid[gy0, gx1])
+        q12 = float(grid[gy1, gx0])
+        q22 = float(grid[gy1, gx1])
+
+        val = (
+            (1.0 - tx) * (1.0 - ty) * q11
+            + tx * (1.0 - ty) * q21
+            + (1.0 - tx) * ty * q12
+            + tx * ty * q22
+        )
+        return float(val)
+
     def get_cost(self, x: float, y: float) -> float:
-        """Get traversal cost at world position (x, y)."""
-        gx, gy = self.world_to_grid(x, y)
-        return float(self.cost_grid[gy, gx])
+        """
+        Get traversal cost at continuous world position (x, y).
+        Uses bilinear interpolation for continuous non-hazard costs (normal, rock, slope).
+        For cells containing impassable hazard values (>= COST_HAZARD), returns COST_HAZARD
+        to preserve hazard non-traversability semantics for path safety.
+        """
+        fx = float(np.clip(x / self.cell_size, 0.0, float(self.grid_res - 1)))
+        fy = float(np.clip(y / self.cell_size, 0.0, float(self.grid_res - 1)))
+
+        gx0 = int(math.floor(fx))
+        gy0 = int(math.floor(fy))
+        gx1 = min(gx0 + 1, self.grid_res - 1)
+        gy1 = min(gy0 + 1, self.grid_res - 1)
+
+        q11 = float(self.cost_grid[gy0, gx0])
+        q21 = float(self.cost_grid[gy0, gx1])
+        q12 = float(self.cost_grid[gy1, gx0])
+        q22 = float(self.cost_grid[gy1, gx1])
+
+        if max(q11, q21, q12, q22) >= self.COST_HAZARD:
+            return float(self.COST_HAZARD)
+
+        return self._bilinear_interpolate(self.cost_grid, x, y)
 
     def get_elevation(self, x: float, y: float) -> float:
-        """Get terrain elevation (meters) at world position (x, y)."""
-        gx, gy = self.world_to_grid(x, y)
-        return float(self.elevation_grid[gy, gx])
+        """Get continuous interpolated terrain elevation (meters) at world position (x, y)."""
+        return self._bilinear_interpolate(self.elevation_grid, x, y)
 
     def get_slope(self, x: float, y: float) -> float:
-        """Get terrain slope at world position (x, y)."""
-        gx, gy = self.world_to_grid(x, y)
-        return float(self.slope_grid[gy, gx])
+        """Get continuous interpolated terrain slope at world position (x, y)."""
+        return self._bilinear_interpolate(self.slope_grid, x, y)
 
     def is_in_hazard(self, x: float, y: float, margin: float = 2.0) -> bool:
         """Check if position is inside or dangerously close to a hazard."""

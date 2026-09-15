@@ -57,6 +57,7 @@ class SensorSuite:
         true_omega: float,
         wheel_slip: float,
         pnt_available: bool,
+        wheel_speed: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Sample all 4 navigation sensors with realistic physical noise and drift.
@@ -84,9 +85,14 @@ class SensorSuite:
             "bias_omega": float(self.imu_bias_omega),
         }
 
-        # 2. Wheel Odometry (affected by slip and wheel noise)
-        effective_speed = true_speed * (1.0 - wheel_slip)
-        meas_wheel_speed = max(0.0, effective_speed + np.random.normal(0.0, self.sigma_odo))
+        # 2. Wheel Odometry (measures wheel rotational-equivalent linear speed + sensor noise)
+        if wheel_speed is not None:
+            base_wheel_speed = wheel_speed
+        else:
+            safe_slip = min(0.95, max(0.0, wheel_slip))
+            base_wheel_speed = true_speed / max(0.05, 1.0 - safe_slip)
+
+        meas_wheel_speed = max(0.0, base_wheel_speed + np.random.normal(0.0, self.sigma_odo))
         meas_distance_step = meas_wheel_speed * dt
 
         odo_data = {
