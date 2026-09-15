@@ -5,27 +5,41 @@
 
 ---
 
-## 🛰️ 1. Executive Summary & Phase 1 Completion
+## 🛰️ 1. Executive Summary & Project Overview
 
 Planetary exploration missions (such as Mars 2020 / Perseverance and future manned Mars outposts) face a fundamental obstacle: **the total absence of Earth-like GPS infrastructure**. Rovers must navigate across treacherous Martian terrain—navigating craters, boulder fields, loose regolith, and steep escarpments—using a constrained, intermittent constellation of orbiters and onboard sensors.
 
 **NAVIS** is an autonomous mission-control software simulation that solves this through:
 1. **Physical Rover & Kinematic Simulation Engine**: Real-time 20Hz continuous physics loop incorporating exact constant-turn-rate arc kinematics, dynamic lookahead, terrain-dependent wheel-slip physics, differential wheel speeds, steering acceleration limits, and continuous battery depletion.
 2. **Dynamic AI Constellation Scheduling**: Multi-objective utility optimization dynamically allocating satellite roles (**PNT**, **High-Resolution Imaging**, **Telemetry Communication**, or **Standby/Idle**) based on real-time rover risk, elevation geometry, and battery states.
-3. **Extended Kalman Filter (EKF) Multi-Sensor Fusion**: Seamlessly blends high-precision satellite PNT (when in sight) with onboard IMU, Wheel Odometry (wheel-speed sampled), and Visual Odometry.
+3. **Extended Kalman Filter (EKF) Multi-Sensor Fusion**: Seamlessly blends satellite PNT (when locked) with onboard IMU, Wheel Odometry (slip-compensated), and Visual Odometry (body-frame relative displacement).
 4. **Autonomous Outage Fallback**: When satellites pass over the horizon or experience communication blackouts, NAVIS instantly transitions to dead-reckoning fusion, maintaining route tracking while realistically projecting expanding covariance uncertainty.
 5. **Machine Learning Trajectory Projection**: Uses polynomial kinematic Ridge models to project forward paths over a 30-second horizon with empirical confidence estimation.
 6. **Orbital Visual Hazard Reconnaissance & Dynamic A\* Replanning**: When an imaging satellite detects an impassable boulder field or crater pit intersecting the predicted path, NAVIS automatically recalculates a safe detour in real time.
 
 ---
 
-## 🚦 Phase 1 Implementation Status
+## 🚦 2. Development Progress & Current Status
 
 ```
-PHASE 1 — COMPLETE ✅
+Current Status:
+- Phase 1: Completed
+- Phase 2: Completed
+- NAVIS simulation stack is under active development
+- Next development work should begin from Phase 3
 ```
 
-The Phase 1 Core Physics, Kinematics, Terrain & Integration milestone has been fully implemented and verified against unit, physical, and integration test suites:
+### Roadmap Progress Overview
+
+| Phase | Milestone Name | Status | Summary |
+| :--- | :--- | :---: | :--- |
+| **Phase 1** | Core Physics, Kinematics & Terrain | `COMPLETED` ✅ | 20Hz continuous physics, arc kinematics, terrain slip, wheel odometry & baseline EKF |
+| **Phase 2** | Sensor Infrastructure & EKF Fusion | `COMPLETED` ✅ | Deterministic RNG, IMU realism, VO body-frame model, PNT/HDOP geometry & fusion validation |
+| **Phase 3** | Advanced AI Swarm & Mission Control | `PENDING` ⏳ | Multi-rover cooperative swarm navigation & extended autonomous mission scheduling |
+
+---
+
+### Phase 1 Implementation Details — Core Physics & Kinematics (`COMPLETED` ✅)
 
 | Subsystem / Feature | Phase 1 Status | Verification Details |
 | :--- | :---: | :--- |
@@ -43,7 +57,23 @@ The Phase 1 Core Physics, Kinematics, Terrain & Integration milestone has been f
 
 ---
 
-## 🏗️ 2. System Architecture
+### Phase 2 Implementation Details — Sensor Infrastructure & EKF Fusion (`COMPLETED` ✅)
+
+| Subsystem / Feature | Phase 2 Status | Verification Details |
+| :--- | :---: | :--- |
+| **Isolated RNG & Determinism** | `IMPLEMENTED` | Isolated NumPy `default_rng` per sensor suite guaranteeing exact bitwise reproducibility across simulation resets |
+| **Sensor Metadata & Timestamps** | `IMPLEMENTED` | Standardized payload contracts with explicit `sensor_id`, simulation `timestamp`, and manual dropout controls |
+| **IMU Physical Realism Model** | `IMPLEMENTED` | Added centripetal acceleration $a_y = v \cdot \omega$, random-walk bias drift, scale factor errors & dynamic range clipping |
+| **Wheel Odometry Slip Contract** | `IMPLEMENTED` | EKF slip compensation contract $v_{\text{est}} = v_{\text{wheel}}(1-s)$, decoupling rotational wheel speed from ground speed |
+| **Visual Odometry Body Frame** | `IMPLEMENTED` | Body-frame relative displacement $(dx_{\text{body}}, dy_{\text{body}}, d\theta)$ via inverse rotation, $H_{\text{vo}}$ Jacobian & gyro bias sign alignment |
+| **PNT & Satellite Geometry HDOP** | `IMPLEMENTED` | Deterministic 2D Horizontal Dilution of Precision ($\text{HDOP} \in [0.70, 5.00]$) derived from satellite azimuth/elevation unit vectors |
+| **Dynamic $R_{\text{pnt}}$ Covariance** | `IMPLEMENTED` | Dynamic measurement noise variance $R_{\text{pnt\_dynamic}} = (\sigma_{\text{pnt\_base}} \cdot \text{HDOP})^2 I_2$ exported in payload and used in EKF updates |
+| **Full Fusion Integration Suite** | `IMPLEMENTED` | 14-combination availability matrix, dynamic cyclic dropouts, 5,000-step long-run stability & $P$ matrix symmetrization |
+| **Phase 2 Validation & Testing** | `IMPLEMENTED` | 100% pass rate across 72 unit/integration tests (`test_sensors_phase2.py`, `test_phase2_sensor_fusion.py`) |
+
+---
+
+## 🏗️ 3. System Architecture
 
 ```mermaid
 graph TD
@@ -95,9 +125,9 @@ $$\text{ROVER UPDATE} \longrightarrow \text{SENSOR SAMPLING} \longrightarrow \te
 
 ---
 
-## 🔬 3. Core Simulation & Physics Foundations
+## 🔬 4. Core Simulation & Physics Foundations
 
-### 3.1 Rover Physical Kinematics & Arc Integration
+### 4.1 Rover Physical Kinematics & Arc Integration
 The rover position $(x, y)$ and orientation $\theta$ (heading) evolve according to exact constant-turn-rate arc kinematics:
 
 - **Straight-Line Motion ($\omega \approx 0$)**:
@@ -110,12 +140,12 @@ The rover position $(x, y)$ and orientation $\theta$ (heading) evolve according 
   $$y_{k} = y_{k-1} - \frac{v_{\text{ground}}}{\omega} \left[ \cos(\theta_{k-1} + \omega \Delta t) - \cos(\theta_{k-1}) \right]$$
   $$\theta_{k} = \left( \theta_{k-1} + \omega \Delta t + \pi \right) \bmod 2\pi - \pi$$
 
-### 3.2 Dynamic Speed-Adaptive Lookahead
+### 4.2 Dynamic Speed-Adaptive Lookahead
 Pure-pursuit target waypoint tracking computes a speed-adaptive lookahead distance $L_d$:
 $$L_d = \text{clip}(k_v \cdot v + L_{\min}, L_{\min}, L_{\max})$$
 * **Verified Implemented Defaults**: $k_v = 1.5$, $L_{\min} = 3.0\text{ m}$, $L_{\max} = 12.0\text{ m}$.
 
-### 3.3 Wheel-Slip Physics & Differential Odometry
+### 4.3 Wheel-Slip Physics & Differential Odometry
 Terrain roughness and local surface slope induce wheel slip $s$:
 $$s = \text{clip}\left(\min(0.45, 0.02 + 0.04 \cdot (\text{TerrainCost} - 1.0) + 0.15 \cdot \text{Slope}), 0.0, 0.95\right)$$
 
@@ -127,19 +157,19 @@ $$s = \text{clip}\left(\min(0.45, 0.02 + 0.04 \cdot (\text{TerrainCost} - 1.0) +
 - **Differential Wheel Speeds** (Track width $W = 1.2\text{ m}$):
   $$v_{\text{left}} = v_{\text{wheel}} - \frac{\omega \cdot W}{2}, \quad v_{\text{right}} = v_{\text{wheel}} + \frac{\omega \cdot W}{2}$$
 
-### 3.4 Steering Acceleration Limits & Inertial Damping
+### 4.4 Steering Acceleration Limits & Inertial Damping
 The rover steering rate $\omega$ cannot change instantaneously:
 $$\Delta \omega = \text{clip}(\omega_{\text{desired}} - \omega, -\alpha_{\max} \Delta t, \alpha_{\max} \Delta t)$$
 $$\omega_{k} = \text{clip}(\omega_{k-1} + \Delta \omega, -\omega_{\max}, \omega_{\max})$$
 * **Verified Implemented Limits**: Steering angular acceleration limit $\alpha_{\max} = 3.0\text{ rad/s}^2$; Max steering rate $\omega_{\max} = 1.5\text{ rad/s}$ ($\approx 85.9^\circ/\text{s}$).
 
-### 3.5 Continuous Battery & Subsystem Dynamics
+### 4.5 Continuous Battery & Subsystem Dynamics
 Subsystem electrical power draw $P_{\text{kW}}$ combines base hotel load with mechanical velocity load:
 $$P_{\text{kW}} = 0.015 + 0.12 \cdot \left(\frac{v}{v_{\max}}\right) \cdot \text{TerrainCost} \quad [\text{kW}]$$
 $$\text{BatteryLoss}_{\%} = \left( \frac{P_{\text{kW}} \cdot \frac{\Delta t}{3600}}{0.5\text{ kWh}} \right) \times 100\%$$
 *Base hotel load of $15\text{W}$ ($0.015\text{kW}$) continues to draw power even when stationary.*
 
-### 3.6 Target Arrival & Settling Dynamics
+### 4.6 Target Arrival & Settling Dynamics
 Upon reaching target proximity ($\text{dist} \le 4.0\text{ m}$):
 - Mission status transitions to `RoverMissionStatus.TARGET_REACHED`.
 - Target translational speed drops to 0; translational speed decelerates smoothly ($a \le -1.2\text{ m/s}^2$).
@@ -149,25 +179,25 @@ Upon reaching target proximity ($\text{dist} \le 4.0\text{ m}$):
 
 ---
 
-## 🗺️ 4. Continuous Terrain & Hazard Modeling
+## 🗺️ 5. Continuous Terrain & Hazard Modeling
 
-### 4.1 Bilinear Surface Interpolation
+### 5.1 Bilinear Surface Interpolation
 The 600m $\times$ 600m Martian environment is discretized into a $60 \times 60$ grid (cell size $10.0\text{m}$). Continuous world queries $(x, y)$ use 2D bilinear interpolation for elevation and slope:
 
 $$f(x,y) = (1-t_x)(1-t_y) Q_{11} + t_x(1-t_y) Q_{21} + (1-t_x)t_y Q_{12} + t_x t_y Q_{22}$$
 
 Where $t_x = \frac{x}{\text{cell}} - \lfloor \frac{x}{\text{cell}} \rfloor$, $t_y = \frac{y}{\text{cell}} - \lfloor \frac{y}{\text{cell}} \rfloor$.
 
-### 4.2 Categorical Hazard Safety
+### 5.2 Categorical Hazard Safety
 To prevent dangerous smoothing of impassable obstacles into passable paths:
 - Non-hazard terrain (Normal $\text{Cost}=1.0$, Rock $\text{Cost}=5.0$, Slope $\text{Cost}=8.0$) undergoes smooth bilinear interpolation.
 - Categorical impassable hazards ($\text{Cost} \ge 1000.0$) retain strict non-traversability semantics: if any adjacent cell has $\text{Cost} \ge 1000.0$, the cost query returns $1000.0$.
 
 ---
 
-## 🛰️ 5. Sensor & EKF Multi-Sensor Fusion Pipeline
+## 🛰️ 6. Sensor & EKF Multi-Sensor Fusion Pipeline
 
-### 5.1 Extended Kalman Filter (EKF) State Vector
+### 6.1 Extended Kalman Filter (EKF) State Vector
 The rover estimation pipeline uses an 8-State Extended Kalman Filter:
 $$\mathbf{x} = \begin{bmatrix} x & y & v_x & v_y & \theta & b_{ax} & b_{ay} & b_\omega \end{bmatrix}^T$$
 
@@ -184,7 +214,7 @@ $$\mathbf{x} = \begin{bmatrix} x & y & v_x & v_y & \theta & b_{ax} & b_{ay} & b_
 
 ---
 
-## 🛰️ 6. Satellite Constellation & AI Scheduler
+## 🛰️ 7. Satellite Constellation & AI Scheduler
 
 | Satellite | Name | Altitude | Period | Inclination | Capabilities | Primary Role |
 | :--- | :--- | :---: | :---: | :---: | :--- | :--- |
@@ -198,7 +228,7 @@ $$\text{Score}_i = 0.30 \cdot \text{Visibility}_i + 0.25 \cdot \text{RoverNeed} 
 
 ---
 
-## ⚖️ 7. Three Evaluation Modes
+## ⚖️ 8. Three Evaluation Modes
 
 1. **MODE A — Rover Only (Dead Reckoning)**:
    - Satellites disabled.
@@ -213,7 +243,7 @@ $$\text{Score}_i = 0.30 \cdot \text{Visibility}_i + 0.25 \cdot \text{RoverNeed} 
 
 ---
 
-## 🚀 8. Installation & One-Click Launch
+## 🚀 9. Installation & One-Click Launch
 
 ### Prerequisites
 - Python 3.10+ (tested on Python 3.13)
@@ -242,12 +272,12 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 ---
 
-## 🧪 9. Verification & Test Suite Results
+## 🧪 10. Verification & Test Suite Results
 
-Phase 1 verification is performed using pytest across unit physics, system integration, and E2E integration suites:
+Phase 1 and Phase 2 verification is performed using `pytest` across unit physics, sensor infrastructure, EKF fusion, and integration test suites:
 
 ```powershell
-pytest tests/test_rover_physics.py tests/test_phase1_integration.py tests/test_backend.py
+pytest tests/test_sensors_phase2.py tests/test_phase2_sensor_fusion.py tests/test_rover_physics.py tests/test_phase1_integration.py tests/test_backend.py
 ```
 
 ### Verified Test Results
@@ -257,12 +287,14 @@ pytest tests/test_rover_physics.py tests/test_phase1_integration.py tests/test_b
 | `tests/test_rover_physics.py` | **12 / 12** | `PASSED` ✅ | Kinematics, Arc Integration, Slip Physics, Steering Dynamics, Battery, Target Reached |
 | `tests/test_phase1_integration.py` | **8 / 8** | `PASSED` ✅ | Execution Synchronization, Fallback Outages, Dynamic Hazard Replanning, Long-Run Stability |
 | `tests/test_backend.py` | **9 / 9** | `PASSED` ✅ | Terrain Generation, EKF Fusion, AI Scheduler, Trajectory Predictor, Benchmark Evaluator |
+| `tests/test_sensors_phase2.py` | **59 / 59** | `PASSED` ✅ | Sensor Infrastructure, IMU Realism, Wheel Odo Slip, VO Body Frame, PNT Geometry & HDOP |
+| `tests/test_phase2_sensor_fusion.py` | **13 / 13** | `PASSED` ✅ | 14-Combination Availability Matrix, Dynamic Dropouts, $P$ Symmetry, 5000-Step Stability |
 | `tests/test_e2e_ws.py` | **1 / 1** | `PASSED` ✅ | Full-Stack WebSocket telemetry & live REST command controls |
-| **TOTAL** | **30 / 30** | `PASSED` ✅ | **Complete System Verification** |
+| **TOTAL** | **102 / 102** | `PASSED` ✅ | **Complete System & Sensor Fusion Verification** |
 
 ---
 
-## 📡 10. REST API & WebSocket Reference
+## 📡 11. REST API & WebSocket Reference
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
@@ -282,7 +314,7 @@ pytest tests/test_rover_physics.py tests/test_phase1_integration.py tests/test_b
 
 ---
 
-## 🏆 11. Presentation Walkthrough Guide
+## 🏆 12. Presentation Walkthrough Guide
 
 1. **Open on Mode C (Adaptive AI)**: Point out the real-time Mars tactical canvas with rotating satellite beams and EKF uncertainty ellipse ($2\sigma$).
 2. **Trigger "SIMULATE SATELLITE OUTAGE"**: Show how the red `AUTONOMOUS FALLBACK` alert fires, the covariance ellipse smoothly expands, and the rover continues dead-reckoning navigation.
