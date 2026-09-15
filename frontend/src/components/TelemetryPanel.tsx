@@ -39,7 +39,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ rover, metrics }
             <MapPin className="w-3 h-3 text-neon-cyan" /> COORDINATES (X, Y)
           </div>
           <div className="text-base font-bold text-white">
-            {rover?.x.toFixed(1)}m, {rover?.y.toFixed(1)}m
+            {(rover?.x ?? 50.0).toFixed(1)}m, {(rover?.y ?? 50.0).toFixed(1)}m
           </div>
           <div className="text-[9px] text-slate-500 mt-1">Mars Datum 0,0</div>
         </div>
@@ -99,7 +99,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ rover, metrics }
             <Radio className="w-3 h-3 text-neon-cyan" /> COVERAGE TIME
           </div>
           <div className="text-base font-bold text-neon-cyan">
-            {metrics?.coverage_pct.toFixed(1) || '100.0'}%
+            {(metrics?.coverage_pct ?? 100.0).toFixed(1)}%
           </div>
           <div className="text-[9px] text-slate-500 mt-1">Constellation Window</div>
         </div>

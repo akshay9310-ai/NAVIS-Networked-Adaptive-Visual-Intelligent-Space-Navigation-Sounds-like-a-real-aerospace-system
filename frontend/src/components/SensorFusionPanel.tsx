@@ -17,8 +17,15 @@ export const SensorFusionPanel: React.FC<SensorFusionPanelProps> = ({
 }) => {
   const isFallback = ekf?.fallback_active || false;
   const pntActive = sensors?.pnt?.active || false;
-  const posError = metrics?.position_error_instant_m || metrics?.current_position_error_m || 0.0;
-  const uncertainty = ekf?.uncertainty_m || 0.5;
+  const posError = metrics?.position_error_instant_m ?? metrics?.current_position_error_m ?? 0.0;
+  const uncertainty = ekf?.uncertainty_m ?? 0.5;
+
+  const estX = ekf?.est_x ?? truePos?.x ?? 50.0;
+  const estY = ekf?.est_y ?? truePos?.y ?? 50.0;
+  const estVx = ekf?.est_vx ?? 0.0;
+  const estVy = ekf?.est_vy ?? 0.0;
+  const estHeadingDeg = ekf?.est_heading_deg ?? truePos?.heading_deg ?? 0.0;
+  const biasAx = ekf?.bias_estimates?.b_ax ?? 0.0;
 
   return (
     <div className="panel-glass flex flex-col h-full overflow-hidden">
@@ -121,22 +128,22 @@ export const SensorFusionPanel: React.FC<SensorFusionPanelProps> = ({
           <div className="flex justify-between">
             <span className="text-slate-400">Est Coordinates (X, Y):</span>
             <span className="text-neon-cyan font-bold">
-              {ekf?.est_x.toFixed(1)}m, {ekf?.est_y.toFixed(1)}m
+              {estX.toFixed(1)}m, {estY.toFixed(1)}m
             </span>
           </div>
           <div className="flex justify-between">
             <span className="text-slate-400">Est Velocity (Vx, Vy):</span>
             <span className="text-slate-200">
-              {ekf?.est_vx.toFixed(2)}m/s, {ekf?.est_vy.toFixed(2)}m/s
+              {estVx.toFixed(2)}m/s, {estVy.toFixed(2)}m/s
             </span>
           </div>
           <div className="flex justify-between">
             <span className="text-slate-400">Estimated Heading:</span>
-            <span className="text-slate-200">{ekf?.est_heading_deg.toFixed(1)}°</span>
+            <span className="text-slate-200">{estHeadingDeg.toFixed(1)}°</span>
           </div>
           <div className="flex justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-800">
             <span>IMU Acc Bias:</span>
-            <span>{ekf?.bias_estimates.b_ax.toFixed(3)} m/s²</span>
+            <span>{biasAx.toFixed(3)} m/s²</span>
           </div>
         </div>
       </div>

@@ -82,8 +82,27 @@ export function useSimulation() {
 
   // Send Command Helper
   const sendCommand = useCallback((cmd: Record<string, any>) => {
+    // Sanitize command payload to ensure only plain serializable values are sent
+    const sanitized: Record<string, any> = {};
+    for (const [key, val] of Object.entries(cmd)) {
+      if (
+        val === null ||
+        typeof val === 'number' ||
+        typeof val === 'string' ||
+        typeof val === 'boolean'
+      ) {
+        sanitized[key] = val;
+      } else if (Array.isArray(val)) {
+        sanitized[key] = val.filter(
+          (v) => v === null || ['number', 'string', 'boolean'].includes(typeof v)
+        );
+      } else if (typeof val === 'object' && val !== null && val.constructor === Object) {
+        sanitized[key] = val;
+      }
+    }
+
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(cmd));
+      wsRef.current.send(JSON.stringify(sanitized));
     } else {
       // Fallback REST POST
       const actionMap: Record<string, string> = {
@@ -94,30 +113,36 @@ export function useSimulation() {
         restore: '/api/satellite/restore',
         demo: '/api/demo/run',
       };
-      if (actionMap[cmd.action]) {
-        fetch(`${apiBase}${actionMap[cmd.action]}`, { method: 'POST' });
+      if (actionMap[sanitized.action]) {
+        fetch(`${apiBase}${actionMap[sanitized.action]}`, { method: 'POST' });
       }
     }
   }, [apiBase]);
 
   const startMission = useCallback(() => sendCommand({ action: 'start' }), [sendCommand]);
   const pauseMission = useCallback(() => sendCommand({ action: 'pause' }), [sendCommand]);
-  const resetMission = useCallback((seed?: number) => sendCommand({ action: 'reset', seed }), [sendCommand]);
+  const resetMission = useCallback((seed?: number) => {
+    const cleanSeed = typeof seed === 'number' ? seed : undefined;
+    sendCommand({ action: 'reset', ...(cleanSeed !== undefined ? { seed: cleanSeed } : {}) });
+  }, [sendCommand]);
+
   const setSpeed = useCallback((multiplier: number) => {
-    sendCommand({ action: 'speed', multiplier });
+    const cleanMultiplier = typeof multiplier === 'number' ? multiplier : 1.0;
+    sendCommand({ action: 'speed', multiplier: cleanMultiplier });
     fetch(`${apiBase}/api/simulation/speed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ multiplier }),
+      body: JSON.stringify({ multiplier: cleanMultiplier }),
     }).catch(() => {});
   }, [sendCommand, apiBase]);
 
   const setMode = useCallback((mode: 'MODE_A' | 'MODE_B' | 'MODE_C') => {
-    sendCommand({ action: 'mode', mode });
+    const cleanMode = typeof mode === 'string' ? mode : 'MODE_C';
+    sendCommand({ action: 'mode', mode: cleanMode });
     fetch(`${apiBase}/api/simulation/mode`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify({ mode: cleanMode }),
     }).catch(() => {});
   }, [sendCommand, apiBase]);
 
@@ -125,17 +150,23 @@ export function useSimulation() {
   const restoreSatellite = useCallback(() => sendCommand({ action: 'restore' }), [sendCommand]);
 
   const injectHazard = useCallback((x: number, y: number, radius = 28.0, type = 'ROCK_FIELD') => {
-    sendCommand({ action: 'inject_hazard', x, y, radius, type });
+    const cleanX = typeof x === 'number' ? x : 200.0;
+    const cleanY = typeof y === 'number' ? y : 200.0;
+    const cleanRadius = typeof radius === 'number' ? radius : 28.0;
+    const cleanType = typeof type === 'string' ? type : 'ROCK_FIELD';
+
+    sendCommand({ action: 'inject_hazard', x: cleanX, y: cleanY, radius: cleanRadius, type: cleanType });
     fetch(`${apiBase}/api/hazard/inject`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ x, y, radius, hazard_type: type }),
+      body: JSON.stringify({ x: cleanX, y: cleanY, radius: cleanRadius, hazard_type: cleanType }),
     }).catch(() => {});
   }, [sendCommand, apiBase]);
 
   const runDemo = useCallback(() => sendCommand({ action: 'demo' }), [sendCommand]);
 
-  const runBenchmark = useCallback(async (seed = 42) => {
+  const runBenchmark = useCallback(async (seedInput?: number) => {
+    const seed = typeof seedInput === 'number' ? seedInput : 42;
     setIsBenchmarking(true);
     try {
       const res = await fetch(`${apiBase}/api/benchmark/run`, {
